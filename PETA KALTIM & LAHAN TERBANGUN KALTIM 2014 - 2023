@@ -1,0 +1,263 @@
+
+// ======================================================
+// PETA 10 KABUPATEN/KOTA KALIMANTAN TIMUR
+// LABEL DIATUR MANUAL AGAR TIDAK BERTUMPUK
+// ======================================================
+
+// 1. Mengambil batas kabupaten/kota
+var adm2 = ee.FeatureCollection(
+  'WM/geoLab/geoBoundaries/600/ADM2'
+);
+
+// 2. Memilih data Indonesia
+var indonesia = adm2.filter(
+  ee.Filter.eq('shapeGroup', 'IDN')
+);
+
+// 3. Menyiapkan nama wilayah
+var dataNama = indonesia.map(function(f) {
+  var nama = ee.String(f.get('shapeName')).toLowerCase();
+  return f.set('nama_kecil', nama);
+});
+
+// 4. Memilih 10 kabupaten/kota Kaltim
+var kaltim = dataNama.filter(
+  ee.Filter.or(
+    ee.Filter.stringContains('nama_kecil', 'paser'),
+    ee.Filter.stringContains('nama_kecil', 'kutai'),
+    ee.Filter.stringContains('nama_kecil', 'berau'),
+    ee.Filter.stringContains('nama_kecil', 'mahakam'),
+    ee.Filter.stringContains('nama_kecil', 'balikpapan'),
+    ee.Filter.stringContains('nama_kecil', 'samarinda'),
+    ee.Filter.stringContains('nama_kecil', 'bontang')
+  )
+);
+
+// 5. Periksa jumlah dan nama wilayah
+print('JUMLAH WILAYAH:', kaltim.size());
+
+print(
+  'DAFTAR KABUPATEN/KOTA:',
+  kaltim.aggregate_array('shapeName').sort()
+);
+
+// 6. Mengambil batas provinsi Kaltim
+var adm1 = ee.FeatureCollection(
+  'WM/geoLab/geoBoundaries/600/ADM1'
+);
+
+var batasProvinsi = adm1
+  .filter(ee.Filter.eq('shapeGroup', 'IDN'))
+  .filter(ee.Filter.eq('shapeName', 'East Kalimantan'));
+
+// 7. Mengatur tampilan peta
+Map.layers().reset();
+Map.setCenter(117.15, -0.50, 7);
+
+// 8. Menampilkan wilayah berwarna kuning
+Map.addLayer(
+  kaltim.style({
+    color: 'FF0000',
+    fillColor: 'FFFF0088',
+    width: 2
+  }),
+  {},
+  'Batas Kabupaten Kota'
+);
+
+// 9. Menampilkan batas luar provinsi
+Map.addLayer(
+  batasProvinsi.style({
+    color: '0000FF',
+    fillColor: '00000000',
+    width: 3
+  }),
+  {},
+  'Batas Provinsi Kaltim'
+);
+
+// 10. Memanggil paket teks
+var text = require('users/gena/packages:text');
+
+var skala = Map.getScale();
+
+var gaya = {
+  fontSize: 10,
+  textColor: '000000',
+  outlineColor: 'FFFFFF',
+  outlineWidth: 3
+};
+
+// 11. Membuat label dengan posisi manual
+var label1 = text.draw(
+  'BERAU',
+  ee.Geometry.Point([117.35, 1.85]),
+  skala,
+  gaya
+);
+
+var label2 = text.draw(
+  'KUTAI TIMUR',
+  ee.Geometry.Point([117.15, 0.75]),
+  skala,
+  gaya
+);
+
+var label3 = text.draw(
+  'MAHAKAM ULU',
+  ee.Geometry.Point([115.35, 0.40]),
+  skala,
+  gaya
+);
+
+var label4 = text.draw(
+  'KUTAI BARAT',
+  ee.Geometry.Point([115.75, -0.65]),
+  skala,
+  gaya
+);
+
+var label5 = text.draw(
+  'KUTAI KARTANEGARA',
+  ee.Geometry.Point([116.45, -0.25]),
+  skala,
+  gaya
+);
+
+var label6 = text.draw(
+  'BONTANG',
+  ee.Geometry.Point([117.48, 0.12]),
+  skala,
+  gaya
+);
+
+var label7 = text.draw(
+  'SAMARINDA',
+  ee.Geometry.Point([117.15, -0.48]),
+  skala,
+  gaya
+);
+
+var label8 = text.draw(
+  'BALIKPAPAN',
+  ee.Geometry.Point([116.85, -1.15]),
+  skala,
+  gaya
+);
+
+var label9 = text.draw(
+  'PENAJAM PASER UTARA',
+  ee.Geometry.Point([116.55, -1.45]),
+  skala,
+  gaya
+);
+
+var label10 = text.draw(
+  'PASER',
+  ee.Geometry.Point([116.20, -1.90]),
+  skala,
+  gaya
+);
+
+// 12. Menggabungkan seluruh label
+var semuaLabel = ee.ImageCollection([
+  label1,
+  label2,
+  label3,
+  label4,
+  label5,
+  label6,
+  label7,
+  label8,
+  label9,
+  label10
+]).mosaic();
+
+// 13. Menampilkan nama kabupaten/kota
+Map.addLayer(
+  semuaLabel,
+  {},
+  'Nama 10 Kabupaten Kota Kaltim'
+);
+
+print('PETA DENGAN 10 LABEL SELESAI');
+
+// ==========================================
+// TAHAP 2: ANALISIS DYNAMIC WORLD 2016-2023
+// LUAS LAHAN TERBANGUN 10 KABUPATEN/KOTA
+// ==========================================
+
+// 1. Mengambil data Dynamic World
+var dynamicWorld = ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1');
+
+// 2. Membuat analisis setiap tahun
+var tahunList = ee.List.sequence(2016, 2023);
+
+var hasilDynamicWorld = ee.FeatureCollection(
+  tahunList.map(function(tahun) {
+
+    var tanggalAwal = ee.Date.fromYMD(tahun, 1, 1);
+    var tanggalAkhir = tanggalAwal.advance(1, 'year');
+
+    // Mengambil citra sesuai tahun dan wilayah Kaltim
+    var koleksi = dynamicWorld
+      .filterDate(tanggalAwal, tanggalAkhir)
+      .filterBounds(kaltim);
+
+    // Menghitung kelas tutupan lahan dominan
+    var labelTahunan = koleksi
+      .select('label')
+      .reduce(ee.Reducer.mode())
+      .rename('label');
+
+    // Kelas 6 = Built Area / Lahan Terbangun
+    var lahanTerbangun = labelTahunan.eq(6);
+
+    // Menghitung luas dalam meter persegi
+    var luasM2 = lahanTerbangun
+      .multiply(ee.Image.pixelArea())
+      .rename('area_m2');
+
+    // Menghitung luas setiap kabupaten/kota
+    var statistik = luasM2.reduceRegions({
+      collection: kaltim,
+      reducer: ee.Reducer.sum().setOutputs(['luas_m2']),
+      scale: 100,
+      tileScale: 4
+    });
+
+    // Mengubah hasil menjadi hektare
+    return statistik.map(function(fitur) {
+
+      return ee.Feature(null, {
+        kabupaten_kota: fitur.get('shapeName'),
+        tahun: tahun,
+        luas_terbangun_ha:
+          ee.Number(fitur.get('luas_m2')).divide(10000)
+      });
+
+    });
+
+  })
+).flatten();
+
+// 3. Menampilkan hasil analisis
+print('HASIL DYNAMIC WORLD 2016-2023:',
+      hasilDynamicWorld);
+
+print('JUMLAH DATA:',
+      hasilDynamicWorld.size());
+
+// 4. Mengekspor hasil ke Google Drive
+Export.table.toDrive({
+  collection: hasilDynamicWorld,
+  description: 'DYNAMIC_WORLD_KALTIM_2016_2023',
+  fileFormat: 'CSV',
+  selectors: [
+    'kabupaten_kota',
+    'tahun',
+    'luas_terbangun_ha'
+  ]
+});
+
+print('ANALISIS DYNAMIC WORLD SELESAI');
