@@ -1,85 +1,295 @@
-var aoi = ee.FeatureCollection('FAO/GAUL/2015/level1')
-  .filter(ee.Filter.eq('ADM1_NAME', 'Kalimantan Timur'))
-  .geometry();
+// ============================================================
+// CURAH HUJAN 10 KABUPATEN/KOTA PROVINSI KALIMANTAN TIMUR
+// Periode 2016-2023 | Sumber: CHIRPS Daily (UCSB-CHG) | mm/tahun
+// Tinggal copy-paste lalu Run. Tidak perlu edit apa pun.
+// ============================================================
 
-Map.centerObject(aoi, 8);
+// ---------- 1. PARAMETER ----------
+var TAHUN_AWAL  = 2016;
+var TAHUN_AKHIR = 2023;
 
-var citraCurahHujan = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
-  .filter(ee.Filter.date('2023-01-01', '2023-12-31'))
-  .sum()
-  .clip(aoi);
+var BATAS_KELAS = [2000, 2500, 3000, 3500];
+var WARNA_KELAS = ['#ffffcc', '#a1dab4', '#41b6c4', '#2c7fb8', '#253494'];
+var NAMA_KELAS  = ['Rendah', 'Sedang', 'Tinggi', 'Sangat tinggi', 'Ekstrem tinggi'];
 
-var parameterVisual = {
-  min: 1000.0,
-  max: 5000.0,
-  palette: [
-    '#ffffcc', '#ffeda0', '#fed976', '#feb24c', 
-    '#fd8d3c', '#fc4e2a', '#e31a1c', '#b10026'
-  ]
+var LABEL_SKALA = 1223;   // sama dengan skala peta zoom 7 -> teks tajam
+
+// Sumber batas wilayah (dicoba berurutan, dipakai yang paling lengkap)
+var SUMBER = [
+  'WM/geoLab/geoBoundaries/600/ADM2',
+  'FAO/GAUL_SIMPLIFIED_500m/2025/level2',
+  'FAO/GAUL/2015/level2'
+];
+var KANDIDAT_PROP = ['shapeName', 'ADM2_NAME', 'gaul2_name', 'NAME_2'];
+var KOTAK_KALTIM = ee.Geometry.Rectangle([113.5, -2.9, 119.4, 2.95], 'EPSG:4326', false);
+
+// Konfigurasi 10 kab/kota: nama, baris label, posisi label, ukuran font
+var WILAYAH = {
+  'berau':               {nama: 'Berau',               baris: ['Berau'],                lon: 117.30, lat:  1.90, ukuran: 18, rata: 'center', kota: false},
+  'kutai timur':         {nama: 'Kutai Timur',         baris: ['Kutai Timur'],          lon: 117.40, lat:  0.80, ukuran: 18, rata: 'center', kota: false},
+  'kutai kartanegara':   {nama: 'Kutai Kartanegara',   baris: ['Kutai Kartanegara'],    lon: 116.70, lat: -0.75, ukuran: 18, rata: 'center', kota: false},
+  'kutai barat':         {nama: 'Kutai Barat',         baris: ['Kutai Barat'],          lon: 115.60, lat: -0.25, ukuran: 18, rata: 'center', kota: false},
+  'mahakam ulu':         {nama: 'Mahakam Ulu',         baris: ['Mahakam Ulu'],          lon: 114.60, lat:  0.85, ukuran: 18, rata: 'center', kota: false},
+  'paser':               {nama: 'Paser',               baris: ['Paser'],                lon: 116.00, lat: -2.00, ukuran: 18, rata: 'center', kota: false},
+  'penajam paser utara': {nama: 'Penajam Paser Utara', baris: ['Penajam', 'Paser Utara'], lon: 116.55, lat: -1.52, ukuran: 14, rata: 'center', kota: false},
+  'balikpapan':          {nama: 'Balikpapan',          baris: ['Balikpapan'],           lon: 116.83, lat: -1.25, ukuran: 14, rata: 'left',   kota: true},
+  'samarinda':           {nama: 'Samarinda',           baris: ['Samarinda'],            lon: 117.15, lat: -0.50, ukuran: 14, rata: 'left',   kota: true},
+  'bontang':             {nama: 'Bontang',             baris: ['Bontang'],              lon: 117.50, lat:  0.13, ukuran: 14, rata: 'left',   kota: true}
 };
 
-Map.addLayer(citraCurahHujan, parameterVisual, 
-            'Curah Hujan Tahunan 2023 (mm)');
-
-var legenda = ui.Panel({
-  style: {
-    position: 'bottom-left', padding: '8px 15px', 
-    border: '1px solid #cccccc'
+// ---------- 2. PENCOCOKAN NAMA WILAYAH ----------
+function kunciWilayah(nama) {
+  var s = String(nama).toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\b(kabupaten|kab|kota|kotamadya|regency|city)\b/g, ' ')
+    .replace(/pasir/g, 'paser')
+    .replace(/hulu/g, 'ulu')
+    .replace(/kertanegara/g, 'kartanegara')
+    .replace(/\s+/g, ' ').trim();
+  if (s === 'penajam' || s === 'penajam paser' || s === 'panajam paser utara') {
+    s = 'penajam paser utara';
   }
-});
-
-var judulLegenda = ui.Label({
-  value: 'Curah Hujan Tahunan (mm)\nProvinsi Kalimantan Timur',
-  style: {
-    fontWeight: 'bold', fontSize: '15px', margin: '0 0 6px 0', 
-    padding: '0', whiteSpace: 'pre'
-  }
-});
-legenda.add(judulLegenda);
-
-var nSteps = parameterVisual.palette.length;
-var step = (parameterVisual.max - parameterVisual.min) / (nSteps - 1);
-
-for (var i = 0; i < nSteps; i++) {
-  var minVal = parameterVisual.min + i * step;
-  var color = parameterVisual.palette[i];
-  var label;
-
-  if (i === 0) {
-    label = '< ' + Math.round(minVal);
-  } else if (i === nSteps - 1) {
-    label = '> ' + Math.round(minVal);
-  } else {
-    var maxVal = minVal + step;
-    label = Math.round(minVal) + ' - ' + Math.round(maxVal);
-  }
-
-  var colorBox = ui.Label({ style: { backgroundColor: color, padding: '8px',
-       margin: '0 0 4px 0' } });
-  var description = ui.Label({ value: label, 
-       style: { margin: '0 0 4px 6px' } });
-
-  var barisLegenda = ui.Panel({
-    widgets: [colorBox, description],
-    layout: ui.Panel.Layout.Flow('horizontal')
-  });
-  legenda.add(barisLegenda);
+  if (s === 'west kutai') { s = 'kutai barat'; }
+  if (s === 'east kutai') { s = 'kutai timur'; }
+  return s;
 }
 
-var sumberLabel = ui.Label('Sumber Data: CHIRPS Daily v2.0', 
-  {margin: '8px 8px 4px 8px', fontSize: '10px'});
-legenda.add(sumberLabel);
+// ---------- 3. MUAT BATAS WILAYAH ----------
+function cobaSumber(id) {
+  try {
+    var fc = ee.FeatureCollection(id).filterBounds(KOTAK_KALTIM);
+    var daftarProp = fc.first().propertyNames().getInfo();
+    var prop = null;
+    KANDIDAT_PROP.forEach(function (p) {
+      if (prop === null && daftarProp.indexOf(p) >= 0) { prop = p; }
+    });
+    if (prop === null) { return null; }
 
-Map.add(legenda);
+    var daftarNama = fc.aggregate_array(prop).getInfo();
+    var peta = {};
+    var ditemukan = {};
+    daftarNama.forEach(function (n) {
+      var k = kunciWilayah(n);
+      if (WILAYAH[k]) { peta[n] = WILAYAH[k].nama; ditemukan[k] = true; }
+    });
+    var jumlah = Object.keys(ditemukan).length;
+    if (jumlah === 0) { return null; }
 
+    var kamus = ee.Dictionary(peta);
+    var terpilih = fc.filter(ee.Filter.inList(prop, Object.keys(peta)))
+      .map(function (f) {
+        var g = ee.Feature(f);
+        return ee.Feature(g.geometry(), {NAMA: kamus.get(g.get(prop))});
+      });
+    return {id: id, fc: terpilih, jumlah: jumlah, ditemukan: ditemukan};
+  } catch (e) {
+    print('Sumber dilewati (' + id + '): ' + e.message);
+    return null;
+  }
+}
 
-Export.image.toDrive({
-  image: citraCurahHujan,
-  description: 'CurahHujan_Kalimantan Timur_2023',
-  folder: 'GEE_Export',          
-  fileNamePrefix: 'CurahHujan_Kalimantan Timur_2023',
-  region: aoi,                   
-  scale: 5000,                   
-  maxPixels: 1e13,               
-  crs: 'EPSG:4326'               
+var hasilTerbaik = null;
+SUMBER.forEach(function (id) {
+  var h = cobaSumber(id);
+  if (h !== null) {
+    print('Sumber ' + id + ' -> ' + h.jumlah + ' dari 10 wilayah cocok');
+    if (hasilTerbaik === null || h.jumlah > hasilTerbaik.jumlah) { hasilTerbaik = h; }
+  }
 });
+if (hasilTerbaik === null) {
+  throw new Error('Tidak ada dataset batas yang bisa dibaca. Cek koneksi/akses Earth Engine.');
+}
+
+var kabkota = hasilTerbaik.fc;
+var ditemukan = hasilTerbaik.ditemukan;
+var mahuluPerkiraan = false;
+
+// Jika Mahakam Ulu tidak ada di dataset: potong dari Kutai Barat (PERKIRAAN)
+if (!ditemukan['mahakam ulu'] && ditemukan['kutai barat']) {
+  var gKubar = ee.Feature(kabkota.filter(ee.Filter.eq('NAMA', 'Kutai Barat')).first()).geometry();
+  var potong = ee.Geometry.Polygon([[
+    [112.5, 0.25], [114.6, 0.15], [115.2, 0.30], [115.9, 0.45],
+    [116.5, 0.60], [116.5, 3.00], [112.5, 3.00], [112.5, 0.25]
+  ]], 'EPSG:4326', false);
+  var gMahulu = gKubar.intersection(potong, 100);
+  var gKubarBaru = gKubar.difference(potong, 100);
+  kabkota = kabkota.filter(ee.Filter.neq('NAMA', 'Kutai Barat'))
+    .merge(ee.FeatureCollection([
+      ee.Feature(gKubarBaru, {NAMA: 'Kutai Barat'}),
+      ee.Feature(gMahulu, {NAMA: 'Mahakam Ulu'})
+    ]));
+  ditemukan['mahakam ulu'] = true;
+  mahuluPerkiraan = true;
+  print('CATATAN: Mahakam Ulu tidak ada di dataset, batasnya DIPERKIRAKAN dari pemisahan Kutai Barat.');
+}
+
+var namaWilayah = kabkota.aggregate_array('NAMA').getInfo();
+var jumlahWilayah = namaWilayah.length;
+print('Wilayah terbaca (' + jumlahWilayah + '):', namaWilayah);
+Object.keys(WILAYAH).forEach(function (k) {
+  if (!ditemukan[k]) { print('PERINGATAN: tidak ditemukan di data -> ' + WILAYAH[k].nama); }
+});
+
+var provinsi = kabkota.union(100);   // batas luar Kaltim = gabungan 10 kab/kota
+
+// ---------- 4. CURAH HUJAN TAHUNAN ----------
+var chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY').select('precipitation');
+
+function curahHujanTahunan(tahun) {
+  return chirps
+    .filterDate(ee.Date.fromYMD(tahun, 1, 1), ee.Date.fromYMD(tahun + 1, 1, 1))
+    .sum()
+    .rename('CH_' + tahun)
+    .toFloat()
+    .clipToCollection(provinsi);
+}
+
+var daftarTahun = [];
+var citraTahunan = [];
+for (var t = TAHUN_AWAL; t <= TAHUN_AKHIR; t++) {
+  daftarTahun.push(t);
+  citraTahunan.push(curahHujanTahunan(t));
+}
+
+var citraRata = ee.Image.cat(citraTahunan).reduce(ee.Reducer.mean())
+  .rename('CH_RATA').clipToCollection(provinsi);
+
+function klasifikasi(img) {
+  return ee.Image(1)
+    .add(img.gte(BATAS_KELAS[0]))
+    .add(img.gte(BATAS_KELAS[1]))
+    .add(img.gte(BATAS_KELAS[2]))
+    .add(img.gte(BATAS_KELAS[3]))
+    .updateMask(img.mask());
+}
+var visKelas = {min: 1, max: 5, palette: WARNA_KELAS};
+
+// ---------- 5. PETA ----------
+Map.setOptions('ROADMAP');
+Map.centerObject(provinsi, 7);
+
+for (var i = 0; i < daftarTahun.length; i++) {
+  Map.addLayer(klasifikasi(citraTahunan[i]), visKelas, 'CURAH HUJAN ' + daftarTahun[i], false);
+}
+Map.addLayer(klasifikasi(citraRata), visKelas,
+  'CURAH HUJAN RATA-RATA ' + TAHUN_AWAL + '-' + TAHUN_AKHIR, true);
+
+// Tutup semua area di luar Kaltim (Kalimantan lain, Sarawak, laut, dll.)
+var dalamKaltim = ee.Image().byte().paint(provinsi, 1).mask();
+var diLuarKaltim = ee.Image.constant(1).updateMask(dalamKaltim.not());
+Map.addLayer(diLuarKaltim, {min: 0, max: 1, palette: ['#ffffff']}, 'AREA DI LUAR KALTIM (DITUTUP)');
+
+// Batas antar kab/kota
+var garisKab = ee.Image().byte().paint({featureCollection: kabkota, color: 1, width: 1.5});
+Map.addLayer(garisKab, {palette: ['#222222']}, 'BATAS ANTAR KABUPATEN/KOTA');
+
+// Batas luar provinsi Kaltim (tebal)
+var garisProv = ee.Image().byte().paint({featureCollection: provinsi, color: 1, width: 3.5});
+Map.addLayer(garisProv, {palette: ['#000000']}, 'BATAS LUAR PROVINSI KALTIM');
+
+// ---------- 6. LABEL 10 KAB/KOTA ----------
+var text = require('users/gena/packages:text');
+var citraLabel = [];
+var titikKota = [];
+
+namaWilayah.forEach(function (nama) {
+  var k = WILAYAH[kunciWilayah(nama)];
+  if (!k) { return; }
+  var n = k.baris.length;
+  for (var b = 0; b < n; b++) {
+    var lat = k.lat - b * 0.19 + (n - 1) * 0.095;
+    citraLabel.push(text.draw(k.baris[b], ee.Geometry.Point([k.lon, lat]), LABEL_SKALA, {
+      fontSize: k.ukuran,
+      fontType: 'Arial',
+      textColor: 'ffffff',
+      outlineColor: '000000',
+      outlineWidth: 3,
+      outlineOpacity: 0.95,
+      alignX: k.rata,
+      alignY: 'center'
+    }));
+  }
+  if (k.kota) { titikKota.push(ee.Feature(ee.Geometry.Point([k.lon, k.lat]))); }
+});
+
+if (titikKota.length > 0) {
+  Map.addLayer(ee.FeatureCollection(titikKota)
+    .style({color: '000000', fillColor: 'ffffff', pointSize: 4}), {}, 'TITIK KOTA');
+}
+if (citraLabel.length > 0) {
+  Map.addLayer(ee.ImageCollection(citraLabel).mosaic(), {}, 'LABEL KABUPATEN/KOTA');
+}
+
+// ---------- 7. INFORMATION BOX ----------
+function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+function barisLegenda(warna, teks) {
+  return ui.Panel([
+    ui.Label('', {backgroundColor: warna, padding: '8px', margin: '2px 8px 2px 0', border: '1px solid #777'}),
+    ui.Label(teks, {fontSize: '12px', margin: '3px 0', backgroundColor: 'white'})
+  ], ui.Panel.Layout.Flow('horizontal'), {backgroundColor: 'white'});
+}
+
+var teksKelas = [
+  '< ' + fmt(BATAS_KELAS[0]) + ' mm',
+  fmt(BATAS_KELAS[0]) + ' - ' + fmt(BATAS_KELAS[1]) + ' mm',
+  fmt(BATAS_KELAS[1]) + ' - ' + fmt(BATAS_KELAS[2]) + ' mm',
+  fmt(BATAS_KELAS[2]) + ' - ' + fmt(BATAS_KELAS[3]) + ' mm',
+  '> ' + fmt(BATAS_KELAS[3]) + ' mm'
+];
+
+var gayaTeks = {fontSize: '12px', margin: '2px 8px', backgroundColor: 'white'};
+var sumberBatas = hasilTerbaik.id.indexOf('geoBoundaries') >= 0 ? 'geoBoundaries v6' : 'FAO GAUL';
+
+var infoBox = ui.Panel({
+  style: {position: 'bottom-left', padding: '8px', width: '300px', backgroundColor: 'white'}
+});
+infoBox.add(ui.Label('ANALISIS CURAH HUJAN',
+  {fontWeight: 'bold', fontSize: '16px', margin: '4px 8px', backgroundColor: 'white'}));
+infoBox.add(ui.Label('Provinsi Kalimantan Timur (' + jumlahWilayah + ' kab/kota)', gayaTeks));
+infoBox.add(ui.Label('Periode: ' + TAHUN_AWAL + ' - ' + TAHUN_AKHIR, gayaTeks));
+infoBox.add(ui.Label('Sumber hujan: CHIRPS Daily (UCSB-CHG)', gayaTeks));
+infoBox.add(ui.Label('Sumber batas: ' + sumberBatas, gayaTeks));
+infoBox.add(ui.Label('Satuan: mm/tahun', gayaTeks));
+infoBox.add(ui.Label('Metode: akumulasi curah hujan harian per tahun; layer rata-rata = ' +
+  'rerata total tahunan.', gayaTeks));
+if (mahuluPerkiraan) {
+  infoBox.add(ui.Label('Catatan: batas Mahakam Ulu perkiraan (dipisah dari Kutai Barat).',
+    {fontSize: '11px', color: '#b00020', margin: '3px 8px', backgroundColor: 'white'}));
+}
+infoBox.add(ui.Label('SKALA CURAH HUJAN',
+  {fontWeight: 'bold', fontSize: '13px', margin: '8px 8px 3px', backgroundColor: 'white'}));
+for (var j = 0; j < WARNA_KELAS.length; j++) {
+  infoBox.add(barisLegenda(WARNA_KELAS[j], NAMA_KELAS[j] + ': ' + teksKelas[j]));
+}
+infoBox.add(ui.Label('Klasifikasi merupakan kategori visual awal, bukan standar baku BMKG. ' +
+  'Resolusi CHIRPS ~5,5 km sehingga tampilan berpiksel.',
+  {fontSize: '10px', color: '#555', margin: '6px 8px 2px', backgroundColor: 'white'}));
+Map.add(infoBox);
+
+// ---------- 8. STATISTIK PER KAB/KOTA ----------
+var namaKolom = daftarTahun.map(function (y) { return 'CH_' + y; });
+var kolomSemua = namaKolom.concat(['CH_RATA']);
+var citraGabungan = ee.Image.cat(citraTahunan).addBands(citraRata);
+
+var statistik = citraGabungan.reduceRegions({
+  collection: kabkota,
+  reducer: ee.Reducer.mean(),
+  scale: 5566,
+  tileScale: 4
+}).map(function (f) {
+  var nilai = ee.Dictionary(f.toDictionary(kolomSemua)).map(function (k, v) {
+    return ee.Number(v).round();
+  });
+  return ee.Feature(null, nilai).set('NAMA', f.get('NAMA'));
+}).sort('CH_RATA', false);
+
+print('Rata-rata curah hujan (mm/tahun) per kab/kota:', statistik);
+print(ui.Chart.feature.byFeature(statistik, 'NAMA', namaKolom)
+  .setChartType('ColumnChart')
+  .setOptions({
+    title: 'Curah hujan tahunan per kab/kota (mm/tahun)',
+    hAxis: {title: 'Kabupaten/Kota'},
+    vAxis: {title: 'mm/tahun'},
+    legend: {position: 'right'}
+  }));
