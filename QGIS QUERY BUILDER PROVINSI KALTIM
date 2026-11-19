@@ -1,0 +1,12 @@
+"shapeName" IN (
+'Berau',
+'Kutai Barat',
+'Kutai Kartanegara',
+'Kutai Timur',
+'Mahakam Hulu',
+'Paser',
+'Penajam Paser Utara',
+'Kota Balikpapan',
+'Kota Samarinda',
+'Kota Bontang'
+)
